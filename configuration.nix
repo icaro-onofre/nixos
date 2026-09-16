@@ -8,6 +8,7 @@
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
+      "${fetchTarball "https://github.com/nix-community/home-manager/archive/release-26.05.tar.gz"}/nixos"
     ];
 
   # Use the systemd-boot EFI boot loader.
@@ -93,6 +94,7 @@ environment.variables = {
      git
      waybar
      pass
+     pulseaudio
    ];
 
   # Some programs need SUID wrappers, can be configured further or are
@@ -110,35 +112,35 @@ environment.variables = {
 
   #services.displayManager.sddm.wayland.enable = true;
 
-  # Open ports in the firewall.
-  # networking.firewall.allowedTCPPorts = [ ... ];
-  # networking.firewall.allowedUDPPorts = [ ... ];
-  # Or disable the firewall altogether.
-  # networking.firewall.enable = false;
-
-  # Copy the NixOS configuration file and link it from the resulting system
-  # (/run/current-system/configuration.nix). This is useful in case you
-  # accidentally delete configuration.nix.
-  # system.copySystemConfiguration = true;
-
-  # This option defines the first version of NixOS you have installed on this particular machine,
-  # and is used to maintain compatibility with application data (e.g. databases) created on older NixOS versions.
-  #
-  # Most users should NEVER change this value after the initial install, for any reason,
-  # even if you've upgraded your system to a new NixOS release.
-  #
-  # This value does NOT affect the Nixpkgs version your packages and OS are pulled from,
-  # so changing it will NOT upgrade your system - see https://nixos.org/manual/nixos/stable/#sec-upgrading for how
-  # to actually do that.
-  #
-  # This value being lower than the current NixOS release does NOT mean your system is
-  # out of date, out of support, or vulnerable.
-  #
-  # Do NOT change this value unless you have manually inspected all the changes it would make to your configuration,
-  # and migrated your data accordingly.
-  #
-  # For more information, see `man configuration.nix` or https://nixos.org/manual/nixos/stable/options#opt-system.stateVersion .
   system.stateVersion = "26.05"; # Did you read the comment?
+
+  # HOME MANAGER CONFIG
+
+home-manager.users."icaro" = { pkgs, ... }:
+  let
+    dotfiles = builtins.fetchGit {
+      url = "https://github.com/icaro-onofre/dotfiles.git";
+      ref = "master";
+    };
+  in
+  {
+    home.stateVersion = "26.05"; # match your system's release, don't just copy this
+
+    home.file.".config" = {
+      source = "${dotfiles}/config";
+      recursive = true;
+    };
+
+    home.packages = with pkgs; [
+      # user-specific packages here, as an alternative to environment.systemPackages
+    ];
+
+    programs.git = {
+      enable = true;
+      userName = "icaro";
+      userEmail = "you@example.com";
+    };
+  };
 
   #NVIDIA CONFIG, disable if broken
     # 2. Enable OpenGL / Hardware Acceleration
