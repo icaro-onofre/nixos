@@ -3,6 +3,11 @@
 let
   jdk = pkgs.jdk17;
 
+  unstable = import (fetchTarball
+    "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz") {
+      config.allowUnfree = true;
+    };
+
   androidComposition = pkgs.androidenv.composeAndroidPackages {
     platformVersions = [ "34" "35" ];
     buildToolsVersions = [ "34.0.0" "35.0.0" ];
@@ -27,6 +32,8 @@ in
 
   networking.hostName = "nixos"; # Define your hostname.
   networking.networkmanager.enable = true;
+
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   # Set your time zone.
   time.timeZone = "America/Sao_Paulo";
@@ -86,8 +93,17 @@ in
     # GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${androidSdkRoot}/build-tools/34.0.0/aapt2";
   };
 
-  # install the .pc files / headers (the "dev" outputs) into the system profile
+  # Install the "dev" outputs too (headers, .pc files, cmake configs)
   environment.extraOutputsToInstall = [ "dev" ];
+
+  # Make sure these directories are linked into /run/current-system/sw
+  environment.pathsToLink = [
+    "/include"
+    "/lib"
+    "/lib/pkgconfig"
+    "/share/pkgconfig"
+  ];
+
 
    environment.systemPackages = with pkgs; [
      vim # Do not forget to add an editor to edit configuration.nix! The Nano editor is also installed by default.
@@ -115,12 +131,14 @@ in
      pulseaudio
      ripgrep
      ncdu
+     dunst
+     libnotify
 
      # Flutter / Android dev begin.
      cmake
      ninja
      clang
-     flutter
+     unstable.flutter
      androidComposition.androidsdk
      jdk
      gtk3
@@ -130,6 +148,10 @@ in
      pcre2
      curl
      curl.dev
+     zlib
+     zlib.dev
+     openssl
+     openssl.dev
      vscodium
      # Flutter / Android end.
 
@@ -138,6 +160,7 @@ in
   # Some programs need SUID wrappers, can be configured further or are
   # started in user sessions.
    programs.hyprland.enable = true;
+
    programs.gnupg.agent = {
      enable = true;
      enableSSHSupport = true;
@@ -158,6 +181,10 @@ in
 
   # configuration.nix
   services.gnome.gnome-keyring.enable = true;
+
+  # Enabling dunst
+  services.dbus.packages = [ pkgs.dunst ];
+
   
   # PAM integration so it auto-unlocks with your login password
   security.pam.services.login.enableGnomeKeyring = true;
