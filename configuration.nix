@@ -93,6 +93,7 @@ in
     # GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${androidSdkRoot}/build-tools/34.0.0/aapt2";
   };
 
+
   # Install the "dev" outputs too (headers, .pc files, cmake configs)
   environment.extraOutputsToInstall = [ "dev" ];
 
@@ -112,6 +113,7 @@ in
      adwaita-icon-theme
      tmux		
      kitty
+     rclone
      nemo
      htop
      discord
@@ -133,6 +135,10 @@ in
      ncdu
      dunst
      libnotify
+     zathura
+     zathuraPkgs.zathura_core
+     jq
+     zellij
 
      # Flutter / Android dev begin.
      cmake
@@ -165,6 +171,175 @@ in
      enable = true;
      enableSSHSupport = true;
    };
+
+	xdg.mime.defaultApplications = {
+	  "text/html" = "qutebrowser.desktop";
+	  "x-scheme-handler/http" = "qutebrowser.desktop";
+	  "x-scheme-handler/https" = "qutebrowser.desktop";
+	};
+  # ---------------------------------------------------------------------------
+  # nix-ld: run unpatched, prebuilt Linux binaries (npm/pip native modules,
+  # Gradle-downloaded tools like aapt2, language servers, release tarballs...).
+  # Libraries listed here are exposed via NIX_LD_LIBRARY_PATH to those binaries.
+  # If a binary still fails, run `ldd ./binary` and add the missing library.
+  # ---------------------------------------------------------------------------
+  programs.nix-ld = {
+    enable = true;
+    libraries = with pkgs; [
+      # --- Core C/C++ runtime ---
+      stdenv.cc.cc.lib      # libstdc++, libgcc_s
+      glibc
+      libgcc
+      libunwind
+      libffi
+      gmp
+      icu
+      ncurses
+      readline
+
+      # --- Compression ---
+      zlib
+      zstd
+      bzip2
+      xz
+      lz4
+      libarchive
+
+      # --- Crypto / networking ---
+      openssl
+      curl
+      libssh
+      libssh2
+      nss
+      nspr
+      krb5
+      libsodium
+      gnutls
+      libidn2
+      c-ares
+      nghttp2
+
+      # --- System / hardware ---
+      systemd               # libudev, libsystemd
+      util-linux            # libuuid, libblkid, libmount
+      dbus
+      libcap
+      attr
+      acl
+      e2fsprogs
+      elfutils              # libelf
+      libusb1
+      fuse
+      fuse3
+      pciutils
+      libseccomp
+      libpsl
+
+      # --- Data formats / misc libs ---
+      sqlite
+      expat
+      libxml2
+      libxslt
+      pcre2
+      json-glib
+      libyaml
+      libsecret
+      libnotify
+      libappindicator-gtk3
+      libdbusmenu-gtk3
+
+      # --- GLib / GTK / desktop stack ---
+      glib
+      gtk3
+      gtk2
+      gdk-pixbuf
+      pango
+      cairo
+      harfbuzz
+      atk
+      at-spi2-atk
+      at-spi2-core
+      fontconfig
+      freetype
+      cups
+      libsysprof-capture
+
+      # --- Graphics: OpenGL / Vulkan / Wayland ---
+      libGL
+      libglvnd
+      mesa
+      libgbm
+      libdrm
+      vulkan-loader
+      wayland
+      libxkbcommon
+      libva
+      libvdpau
+
+      # --- X11 ---
+      libx11
+      libxext
+      libxrender
+      libxrandr
+      libxi
+      libxcursor
+      libxfixes
+      libxcomposite
+      libxdamage
+      libxtst
+      libxscrnsaver
+      libxinerama
+      libxxf86vm
+      libxmu
+      libxt
+      libxft
+      libxcb
+      libxkbfile
+      libxshmfence
+      libsm
+      libice
+      libxcb-util
+      libxcb-image
+      libxcb-keysyms
+      libxcb-render-util
+      libxcb-wm
+
+      # --- Audio / media ---
+      alsa-lib
+      libpulseaudio
+      pipewire
+      libjack2
+      ffmpeg
+      libogg
+      libvorbis
+      flac
+      libopus
+      SDL2
+      openal
+      gst_all_1.gstreamer
+      gst_all_1.gst-plugins-base
+
+      # --- Images ---
+      libpng
+      libjpeg
+      libtiff
+      libwebp
+      giflib
+
+      # --- Java / Android tooling (Gradle-downloaded aapt2, emulator, etc.) ---
+      jdk
+    ];
+  };
+
+  # # Enable the OpenSSH daemon.
+  # services.openssh.enable = true;
+
+
+  programs.ssh.extraConfig = ''
+   AddKeysToAgent yes
+  '';
+
+
   # Habilitando o steam
   programs.steam = {
     enable = true;
@@ -174,8 +349,6 @@ in
 
   # List services that you want to enable:
 
-  # Enable the OpenSSH daemon.
-  services.openssh.enable = true;
 
   #services.displayManager.sddm.wayland.enable = true;
 
@@ -184,6 +357,13 @@ in
 
   # Enabling dunst
   services.dbus.packages = [ pkgs.dunst ];
+
+  services.xserver = {
+   enable = true;
+    windowManager.i3 = {
+      enable = true;
+    };
+  };
 
   
   # PAM integration so it auto-unlocks with your login password
@@ -224,10 +404,10 @@ in
 
   #NVIDIA CONFIG, disable if broken
     # 2. Enable OpenGL / Hardware Acceleration
-  hardware.graphics = {
-    enable = true;
-    enable32Bit = true; # Required for 32-bit games (Steam)
-  };
+  # hardware.graphics = {
+  #   enable = true;
+  #   enable32Bit = true; # Required for 32-bit games (Steam)
+  # };
 
   # 3. Load Nvidia driver for Xorg and Wayland
   # services.xserver.videoDrivers = [ "nvidia" ];
@@ -253,6 +433,16 @@ in
     }
   ];
 
+  initialScript = pkgs.writeText "mysql-init.sql" ''
+    CREATE USER IF NOT EXISTS 'masterUnifrota'@'localhost' IDENTIFIED BY 'masterUnifrota';
+    CREATE USER IF NOT EXISTS 'masterUnifrota'@'127.0.0.1' IDENTIFIED BY 'masterUnifrota';
+    ALTER USER 'masterUnifrota'@'localhost' IDENTIFIED BY 'masterUnifrota';
+    ALTER USER 'masterUnifrota'@'127.0.0.1' IDENTIFIED BY 'masterUnifrota';
+    GRANT ALL PRIVILEGES ON Unifrota.* TO 'masterUnifrota'@'localhost';
+    GRANT ALL PRIVILEGES ON Unifrota.* TO 'masterUnifrota'@'127.0.0.1';
+    FLUSH PRIVILEGES;
+  '';
+
   settings = {
     mysqld = {
       bind-address = "127.0.0.1";   # loopback only, not exposed on LAN
@@ -262,30 +452,31 @@ in
 };
 
   # 4. Configure Nvidia settings
-  hardware.nvidia = {
+  # hardware.nvidia = {
+  #
+  #   # Modesetting is required for Wayland and most compositors
+  #   modesetting.enable = true;
+  #
+  #   # Nvidia power management. Experimental, and can cause sleep/suspend issues.
+  #   # Enable this only if you experience screen tearing or sleep issues.
+  #   powerManagement.enable = false;
+  #   # Fine-grained power management. Turns off GPU when not in use.
+  #   # Only available on Turing or newer architectures (GTX 16xx / RTX 20xx and later).
+  #   powerManagement.finegrained = false;
+  #
+  #   # Use the NVidia open source kernel module (not to be confused with nouveau)
+  #   # Only available for Turing and newer architectures (Geforce RTX series / GTX 1650 and up)
+  #   # Set to true if you have a modern card, otherwise false.
+  #   open = true;
+  #
+  #   # Enable the Nvidia settings menu (nvidia-settings)
+  #   nvidiaSettings = true;
+  #
+  #   # Select the appropriate driver version for your specific GPU.
+  #   # Options: stable, beta, production, legacy_470, legacy_390, etc.
+  #   package = config.boot.kernelPackages.nvidiaPackages.stable;
+  # };
 
-    # Modesetting is required for Wayland and most compositors
-    modesetting.enable = true;
-
-    # Nvidia power management. Experimental, and can cause sleep/suspend issues.
-    # Enable this only if you experience screen tearing or sleep issues.
-    powerManagement.enable = false;
-    # Fine-grained power management. Turns off GPU when not in use.
-    # Only available on Turing or newer architectures (GTX 16xx / RTX 20xx and later).
-    powerManagement.finegrained = false;
-
-    # Use the NVidia open source kernel module (not to be confused with nouveau)
-    # Only available for Turing and newer architectures (Geforce RTX series / GTX 1650 and up)
-    # Set to true if you have a modern card, otherwise false.
-    open = true;
-
-    # Enable the Nvidia settings menu (nvidia-settings)
-    nvidiaSettings = true;
-
-    # Select the appropriate driver version for your specific GPU.
-    # Options: stable, beta, production, legacy_470, legacy_390, etc.
-    package = config.boot.kernelPackages.nvidiaPackages.stable;
-  };
 
 }
 
