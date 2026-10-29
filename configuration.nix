@@ -1,6 +1,9 @@
 { config, pkgs, ... }:
 
 let
+  # ---------------------------------------------------------------------------
+  # Pinned helpers
+  # ---------------------------------------------------------------------------
   jdk = pkgs.jdk17;
 
   unstable = import (fetchTarball
@@ -20,27 +23,46 @@ let
   androidSdkRoot = "${androidComposition.androidsdk}/libexec/android-sdk";
 in
 {
-  imports =
-    [ # Include the results of the hardware scan.
-      ./hardware-configuration.nix
-      "${fetchTarball "https://github.com/nix-community/home-manager/archive/release-26.05.tar.gz"}/nixos"
-    ];
+  imports = [
+    ./hardware-configuration.nix
+    "${fetchTarball "https://github.com/nix-community/home-manager/archive/release-26.05.tar.gz"}/nixos"
+  ];
 
-  # Use the systemd-boot EFI boot loader.
+  system.stateVersion = "26.05"; # Did you read the comment?
+
+  # ===========================================================================
+  # Nix
+  # ===========================================================================
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+
+  nixpkgs.config = {
+    allowUnfree = true;
+    android_sdk.accept_license = true;
+  };
+
+  # ===========================================================================
+  # Boot
+  # ===========================================================================
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
-  networking.hostName = "nixos"; # Define your hostname.
-  networking.networkmanager.enable = true;
+  # ===========================================================================
+  # Networking
+  # ===========================================================================
+  networking = {
+    hostName = "nixos";
+    networkmanager.enable = true;
 
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+    # Deskflow server listens on 24800/tcp
+    firewall.allowedTCPPorts = [ 24800 ];
+  };
 
-  # Set your time zone.
+  # ===========================================================================
+  # Locale & time
+  # ===========================================================================
   time.timeZone = "America/Sao_Paulo";
 
-  # Select internationalisation properties.
   i18n.defaultLocale = "en_US.UTF-8";
-
   i18n.extraLocaleSettings = {
     LC_ADDRESS = "pt_BR.UTF-8";
     LC_IDENTIFICATION = "pt_BR.UTF-8";
@@ -53,51 +75,220 @@ in
     LC_TIME = "pt_BR.UTF-8";
   };
 
-  # Configure keymap in X11
-  services.xserver.xkb = {
-    layout = "us";
-    variant = "";
+  # ===========================================================================
+  # Hardware
+  # ===========================================================================
+  # Many adapters (Intel, Broadcom, Realtek) need non-free firmware
+  hardware.enableRedistributableFirmware = true;
+
+  hardware.bluetooth = {
+    enable = true;
+    powerOnBoot = true;
+    settings.General.Experimental = true; # shows battery level of connected devices
   };
 
-  # Define a user account. Don't forget to set a password with ‘passwd’.
+  services.udev.packages = [ pkgs.brightnessctl ];
+
+  # ===========================================================================
+  # Desktop: X11 (i3) + Wayland (Hyprland)
+  # ===========================================================================
+  services.xserver = {
+    enable = true;
+    windowManager.i3.enable = true;
+    xkb = {
+      layout = "us";
+      variant = "";
+    };
+  };
+
+  services.libinput.touchpad.disableWhileTyping = false;
+
+  # Hyprland from unstable: the InputCapture portal (needed by Deskflow as a
+  # Wayland *server*) only exists in xdg-desktop-portal-hyprland >= 1.4.0,
+  # and it needs a Hyprland new enough to speak the input-capture protocol.
+  programs.hyprland = {
+    enable = true;
+    package = unstable.hyprland;
+    portalPackage = unstable.xdg-desktop-portal-hyprland;
+  };
+
+  # Route InputCapture explicitly to the Hyprland portal backend
+  xdg.portal.config.hyprland = {
+    default = [ "hyprland" "gtk" ];
+    "org.freedesktop.impl.portal.InputCapture" = [ "hyprland" ];
+  };
+
+  # Default browser
+  xdg.mime.enable = true;
+  xdg.mime.defaultApplications = {
+    "text/html" = "org.qutebrowser.qutebrowser.desktop";
+    "x-scheme-handler/http" = "org.qutebrowser.qutebrowser.desktop";
+    "x-scheme-handler/https" = "org.qutebrowser.qutebrowser.desktop";
+    "x-scheme-handler/about" = "org.qutebrowser.qutebrowser.desktop";
+    "x-scheme-handler/unknown" = "org.qutebrowser.qutebrowser.desktop";
+  };
+
+  # Notifications
+  services.dbus.packages = [ pkgs.dunst ];
+
+  # ===========================================================================
+  # Audio (PipeWire)
+  # ===========================================================================
+  services.pulseaudio.enable = false;
+  security.rtkit.enable = true; # realtime priority for audio threads
+
+  services.pipewire = {
+    enable = true;
+    alsa.enable = true;
+    alsa.support32Bit = true;
+    pulse.enable = true;
+    jack.enable = true; # lets Mixxx use the JACK API via PipeWire
+  };
+
+  # ===========================================================================
+  # Users & shell
+  # ===========================================================================
   users.users."icaro" = {
     isNormalUser = true;
     description = "icaro";
-    extraGroups = [ "networkmanager" "wheel" "kvm" "adbusers" ];
-    packages = with pkgs; [];
+    extraGroups = [ "networkmanager" "wheel" "kvm" "adbusers" "video" ];
   };
 
-  # Allow unfree packages
-  nixpkgs.config.allowUnfree = true;
-  nixpkgs.config.android_sdk.accept_license = true;
+  programs.zsh.enable = true;
+  environment.shells = with pkgs; [ zsh ];
+  users.defaultUserShell = pkgs.zsh;
 
-  # List packages installed in system profile.
-  # You can use https://search.nixos.org/ to find more packages (and options).
-   programs.zsh.enable = true;
-   environment.shells = with pkgs; [ zsh ];
-   users.defaultUserShell = pkgs.zsh;
+  # ===========================================================================
+  # Security: keyring, GPG, SSH
+  # ===========================================================================
+  services.gnome.gnome-keyring.enable = true;
 
-  # Session-wide variables (cursor + Flutter/Android toolchain)
+  # Auto-unlock the keyring with the login password
+  security.pam.services.login.enableGnomeKeyring = true;
+  security.pam.services.gdm.enableGnomeKeyring = true;
+  security.pam.services.sddm.enableGnomeKeyring = true;
+
+  programs.gnupg.agent = {
+    enable = true;
+    enableSSHSupport = true;
+  };
+
+  programs.ssh.extraConfig = ''
+    AddKeysToAgent yes
+  '';
+
+  # ===========================================================================
+  # Keyboard remapping (keyd)
+  # ===========================================================================
+  services.keyd = {
+    enable = true;
+    keyboards.default = {
+      ids = [ "*" ];
+      settings = {
+        main = {
+          capslock = "overload(meta,esc)";
+          # space = "overloadt2(spacenav, space, 200)";
+        };
+        # spacenav = {
+        #   h = "backspace";
+        # };
+      };
+    };
+  };
+
+  # Group keyd expects, and let the daemon set the group on its socket
+  # (the NixOS unit drops this capability)
+  users.groups.keyd = { };
+  systemd.services.keyd.serviceConfig.CapabilityBoundingSet = [ "CAP_SETGID" ];
+
+  # ===========================================================================
+  # Programs
+  # ===========================================================================
+  programs.steam = {
+    enable = true;
+    remotePlay.openFirewall = true;
+    dedicatedServer.openFirewall = true;
+  };
+
+  # ===========================================================================
+  # System packages
+  # ===========================================================================
+  environment.systemPackages = with pkgs; [
+    # --- Editors ---
+    vim
+    neovim
+
+    # --- Terminal & shell tools ---
+    kitty
+    tmux
+    zellij
+    fzf
+    zoxide
+    lsd
+    ripgrep
+    jq
+    htop
+    ncdu
+    pet
+    stow
+    wget
+
+    # --- Dev ---
+    git
+    lazygit
+    claude-code
+
+    # --- Desktop / WM ---
+    waybar
+    rofi
+    dunst
+    libnotify
+    nemo
+    adwaita-icon-theme
+    brightnessctl
+    keyd
+    unstable.deskflow # same channel as the Hyprland portal
+
+    # --- Apps ---
+    firefox
+    qutebrowser
+    discord
+    zathura
+    zathuraPkgs.zathura_core
+
+    # --- Audio CLI (pactl etc.) ---
+    pulseaudio
+
+    # --- Security / sync ---
+    pass
+    age
+    rclone
+  ];
+
+  # ===========================================================================
+  # Environment variables
+  # ===========================================================================
+  environment.sessionVariables.BROWSER = "qutebrowser";
+
   environment.variables = {
     XCURSOR_THEME = "Adwaita";
     XCURSOR_SIZE = "24";
 
+    # Flutter / Android toolchain
     JAVA_HOME = "${jdk}";
     ANDROID_HOME = androidSdkRoot;
     ANDROID_SDK_ROOT = androidSdkRoot;
 
-    # so pkg-config can find gtk3, sqlite, libsecret, etc.
+    # So pkg-config can find gtk3, sqlite, libsecret, etc.
     PKG_CONFIG_PATH = "/run/current-system/sw/lib/pkgconfig:/run/current-system/sw/share/pkgconfig";
 
     # Use the Nix-provided aapt2 instead of the one Gradle downloads (won't run on NixOS)
     # GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${androidSdkRoot}/build-tools/34.0.0/aapt2";
   };
 
-
-  # Install the "dev" outputs too (headers, .pc files, cmake configs)
+  # Install "dev" outputs too (headers, .pc files, cmake configs)
   environment.extraOutputsToInstall = [ "dev" ];
 
-  # Make sure these directories are linked into /run/current-system/sw
   environment.pathsToLink = [
     "/include"
     "/lib"
@@ -105,89 +296,16 @@ in
     "/share/pkgconfig"
   ];
 
-
-   environment.systemPackages = with pkgs; [
-     vim # Do not forget to add an editor to edit configuration.nix! The Nano editor is also installed by default.
-     wget
-     neovim
-     adwaita-icon-theme
-     tmux		
-     kitty
-     rclone
-     nemo
-     htop
-     discord
-     lazygit
-     firefox
-     qutebrowser
-     lsd
-     pet
-     fzf
-     zoxide
-     rofi
-     zsh
-     stow
-     git
-     waybar
-     pass
-     pulseaudio
-     ripgrep
-     ncdu
-     dunst
-     libnotify
-     zathura
-     zathuraPkgs.zathura_core
-     jq
-     zellij
-
-     # Flutter / Android dev begin.
-     cmake
-     ninja
-     clang
-     unstable.flutter
-     androidComposition.androidsdk
-     jdk
-     gtk3
-     libsecret
-     libsysprof-capture
-     sqlite
-     pcre2
-     curl
-     curl.dev
-     zlib
-     zlib.dev
-     openssl
-     openssl.dev
-     vscodium
-     # Flutter / Android end.
-
-   ];
-
-  # Some programs need SUID wrappers, can be configured further or are
-  # started in user sessions.
-   programs.hyprland.enable = true;
-
-   programs.gnupg.agent = {
-     enable = true;
-     enableSSHSupport = true;
-   };
-
-	xdg.mime.defaultApplications = {
-	  "text/html" = "qutebrowser.desktop";
-	  "x-scheme-handler/http" = "qutebrowser.desktop";
-	  "x-scheme-handler/https" = "qutebrowser.desktop";
-	};
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
   # nix-ld: run unpatched, prebuilt Linux binaries (npm/pip native modules,
   # Gradle-downloaded tools like aapt2, language servers, release tarballs...).
-  # Libraries listed here are exposed via NIX_LD_LIBRARY_PATH to those binaries.
   # If a binary still fails, run `ldd ./binary` and add the missing library.
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
   programs.nix-ld = {
     enable = true;
     libraries = with pkgs; [
       # --- Core C/C++ runtime ---
-      stdenv.cc.cc.lib      # libstdc++, libgcc_s
+      stdenv.cc.cc.lib
       glibc
       libgcc
       libunwind
@@ -220,14 +338,14 @@ in
       nghttp2
 
       # --- System / hardware ---
-      systemd               # libudev, libsystemd
-      util-linux            # libuuid, libblkid, libmount
+      systemd
+      util-linux
       dbus
       libcap
       attr
       acl
       e2fsprogs
-      elfutils              # libelf
+      elfutils
       libusb1
       fuse
       fuse3
@@ -235,7 +353,7 @@ in
       libseccomp
       libpsl
 
-      # --- Data formats / misc libs ---
+      # --- Data formats / misc ---
       sqlite
       expat
       libxml2
@@ -326,157 +444,94 @@ in
       libwebp
       giflib
 
-      # --- Java / Android tooling (Gradle-downloaded aapt2, emulator, etc.) ---
+      # --- Java / Android tooling ---
       jdk
     ];
   };
 
-  # # Enable the OpenSSH daemon.
-  # services.openssh.enable = true;
-
-
-  programs.ssh.extraConfig = ''
-   AddKeysToAgent yes
-  '';
-
-
-  # Habilitando o steam
-  programs.steam = {
+  # ===========================================================================
+  # Services: databases
+  # ===========================================================================
+  services.mysql = {
     enable = true;
-    remotePlay.openFirewall = true; # Optional: open ports for Steam Remote Play
-    dedicatedServer.openFirewall = true; # Optional: open ports for source servers
-  };
+    package = pkgs.mariadb;
 
-  # List services that you want to enable:
+    ensureDatabases = [ "Unifrota" ];
 
+    ensureUsers = [
+      {
+        name = "icaro";
+        ensurePermissions."Unifrota.*" = "ALL PRIVILEGES";
+      }
+      {
+        name = "masterUnifrota";
+        ensurePermissions."Unifrota.*" = "ALL PRIVILEGES";
+      }
+    ];
 
-  #services.displayManager.sddm.wayland.enable = true;
+    initialScript = pkgs.writeText "mysql-init.sql" ''
+      CREATE USER IF NOT EXISTS 'masterUnifrota'@'localhost' IDENTIFIED BY 'masterUnifrota';
+      CREATE USER IF NOT EXISTS 'masterUnifrota'@'127.0.0.1' IDENTIFIED BY 'masterUnifrota';
+      ALTER USER 'masterUnifrota'@'localhost' IDENTIFIED BY 'masterUnifrota';
+      ALTER USER 'masterUnifrota'@'127.0.0.1' IDENTIFIED BY 'masterUnifrota';
+      GRANT ALL PRIVILEGES ON Unifrota.* TO 'masterUnifrota'@'localhost';
+      GRANT ALL PRIVILEGES ON Unifrota.* TO 'masterUnifrota'@'127.0.0.1';
+      FLUSH PRIVILEGES;
+    '';
 
-  # configuration.nix
-  services.gnome.gnome-keyring.enable = true;
-
-  # Enabling dunst
-  services.dbus.packages = [ pkgs.dunst ];
-
-  services.xserver = {
-   enable = true;
-    windowManager.i3 = {
-      enable = true;
+    settings.mysqld = {
+      bind-address = "127.0.0.1"; # loopback only, not exposed on LAN
+      port = 3306;
     };
   };
 
-  
-  # PAM integration so it auto-unlocks with your login password
-  security.pam.services.login.enableGnomeKeyring = true;
-  # or if you use a display manager, e.g.:
-  security.pam.services.gdm.enableGnomeKeyring = true;
-  security.pam.services.sddm.enableGnomeKeyring = true;
+  # services.openssh.enable = true;
 
-  system.stateVersion = "26.05"; # Did you read the comment?
-
-  # HOME MANAGER CONFIG
-
-# home-manager.users."icaro" = { pkgs, ... }:
-#   let
-#     dotfiles = builtins.fetchGit {
-#       url = "https://github.com/icaro-onofre/dotfiles.git";
-#       ref = "master";
-#     };
-#   in
-#   {
-#     home.stateVersion = "26.05"; # match your system's release, don't just copy this
-#
-#     home.file.".config" = {
-#       source = "${dotfiles}/config";
-#       recursive = true;
-#     };
-#
-#     home.packages = with pkgs; [
-#       # user-specific packages here, as an alternative to environment.systemPackages
-#     ];
-#
-#     programs.git = {
-#       enable = true;
-#       userName = "icaro";
-#       userEmail = "icaro.onofre.s@gmail.com";
-#     };
-#   };
-
-  #NVIDIA CONFIG, disable if broken
-    # 2. Enable OpenGL / Hardware Acceleration
+  # ===========================================================================
+  # NVIDIA (disabled — uncomment if needed)
+  # ===========================================================================
   # hardware.graphics = {
   #   enable = true;
   #   enable32Bit = true; # Required for 32-bit games (Steam)
   # };
-
-  # 3. Load Nvidia driver for Xorg and Wayland
+  #
   # services.xserver.videoDrivers = [ "nvidia" ];
-  services.mysql = {
-  enable = true;
-  package = pkgs.mariadb;
-
-  ensureDatabases = [ "Unifrota" ];
-
-  ensureUsers = [
-    {
-      name = "icaro";
-      ensurePermissions = {
-        "Unifrota.*" = "ALL PRIVILEGES";
-      };
-    }
-    {
-      name = "masterUnifrota";
-      ensurePermissions = {
-        "Unifrota.*" = "ALL PRIVILEGES";
-        # or scope to specific tables/db as needed
-      };
-    }
-  ];
-
-  initialScript = pkgs.writeText "mysql-init.sql" ''
-    CREATE USER IF NOT EXISTS 'masterUnifrota'@'localhost' IDENTIFIED BY 'masterUnifrota';
-    CREATE USER IF NOT EXISTS 'masterUnifrota'@'127.0.0.1' IDENTIFIED BY 'masterUnifrota';
-    ALTER USER 'masterUnifrota'@'localhost' IDENTIFIED BY 'masterUnifrota';
-    ALTER USER 'masterUnifrota'@'127.0.0.1' IDENTIFIED BY 'masterUnifrota';
-    GRANT ALL PRIVILEGES ON Unifrota.* TO 'masterUnifrota'@'localhost';
-    GRANT ALL PRIVILEGES ON Unifrota.* TO 'masterUnifrota'@'127.0.0.1';
-    FLUSH PRIVILEGES;
-  '';
-
-  settings = {
-    mysqld = {
-      bind-address = "127.0.0.1";   # loopback only, not exposed on LAN
-      port = 3306;
-    };
-  };
-};
-
-  # 4. Configure Nvidia settings
+  #
   # hardware.nvidia = {
-  #
-  #   # Modesetting is required for Wayland and most compositors
-  #   modesetting.enable = true;
-  #
-  #   # Nvidia power management. Experimental, and can cause sleep/suspend issues.
-  #   # Enable this only if you experience screen tearing or sleep issues.
-  #   powerManagement.enable = false;
-  #   # Fine-grained power management. Turns off GPU when not in use.
-  #   # Only available on Turing or newer architectures (GTX 16xx / RTX 20xx and later).
-  #   powerManagement.finegrained = false;
-  #
-  #   # Use the NVidia open source kernel module (not to be confused with nouveau)
-  #   # Only available for Turing and newer architectures (Geforce RTX series / GTX 1650 and up)
-  #   # Set to true if you have a modern card, otherwise false.
-  #   open = true;
-  #
-  #   # Enable the Nvidia settings menu (nvidia-settings)
+  #   modesetting.enable = true;          # required for Wayland
+  #   powerManagement.enable = false;     # experimental; can break suspend
+  #   powerManagement.finegrained = false; # Turing+ only
+  #   open = true;                        # open kernel module (RTX / GTX 1650+)
   #   nvidiaSettings = true;
-  #
-  #   # Select the appropriate driver version for your specific GPU.
-  #   # Options: stable, beta, production, legacy_470, legacy_390, etc.
   #   package = config.boot.kernelPackages.nvidiaPackages.stable;
   # };
 
-
+  # ===========================================================================
+  # Home Manager (disabled — uncomment to use)
+  # ===========================================================================
+  # home-manager.users."icaro" = { pkgs, ... }:
+  #   let
+  #     dotfiles = builtins.fetchGit {
+  #       url = "https://github.com/icaro-onofre/dotfiles.git";
+  #       ref = "master";
+  #     };
+  #   in
+  #   {
+  #     home.stateVersion = "26.05";
+  #
+  #     home.file.".config" = {
+  #       source = "${dotfiles}/config";
+  #       recursive = true;
+  #     };
+  #
+  #     home.packages = with pkgs; [ ];
+  #
+  #     programs.git = {
+  #       enable = true;
+  #       userName = "icaro";
+  #       userEmail = "icaro.onofre.s@gmail.com";
+  #     };
+  #   };
 }
+
 
