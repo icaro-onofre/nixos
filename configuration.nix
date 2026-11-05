@@ -112,11 +112,13 @@ in
     portalPackage = unstable.xdg-desktop-portal-hyprland;
   };
 
+
   # Route InputCapture explicitly to the Hyprland portal backend
   xdg.portal.config.hyprland = {
     default = [ "hyprland" "gtk" ];
     "org.freedesktop.impl.portal.InputCapture" = [ "hyprland" ];
   };
+
 
   # Default browser
   xdg.mime.enable = true;
@@ -163,6 +165,8 @@ in
   # ===========================================================================
   services.gnome.gnome-keyring.enable = true;
 
+  services.flatpak.enable = true;
+
   # Auto-unlock the keyring with the login password
   security.pam.services.login.enableGnomeKeyring = true;
   security.pam.services.gdm.enableGnomeKeyring = true;
@@ -180,22 +184,42 @@ in
   # ===========================================================================
   # Keyboard remapping (keyd)
   # ===========================================================================
-  services.keyd = {
-    enable = true;
-    keyboards.default = {
-      ids = [ "*" ];
-      settings = {
-        main = {
-          capslock = "overload(meta,esc)";
-          # space = "overloadt2(spacenav, space, 200)";
-        };
-        # spacenav = {
-        #   h = "backspace";
-        # };
+
+services.keyd = {
+  enable = true;
+  keyboards.default = {
+    ids = [ "*" ];
+    settings = {
+      main = {
+        # Caps: tap = Esc, hold = "capsmeta" layer (behaves as Meta for everything else)
+        capslock = "overload(capsmeta, esc)";
+        # Space: tap = space, hold (100ms) = spacenav layer
+        space = "overloadt2(spacenav, space, 200)";
+      };
+
+      # Caps held: acts as Meta, except Space → Enter
+      # "capsmeta:M" = {
+      #   space = "enter";
+      # };
+
+      # # Real Meta+Space → Menu (compose) → layout toggle
+      # meta = {
+      #   space = "compose";
+      # };
+
+      # Space held
+      spacenav = {
+        q = "S-grave"; # ~
+        i = "backspace";
+	w = "C-backspace";
       };
     };
   };
+};
 
+
+# Optional: same layouts on the TTY
+console.useXkbConfig = true;
   # Group keyd expects, and let the daemon set the group on its socket
   # (the NixOS unit drops this capability)
   users.groups.keyd = { };
@@ -232,6 +256,7 @@ in
     pet
     stow
     wget
+    hyprpaper
 
     # --- Dev ---
     git
@@ -247,7 +272,7 @@ in
     adwaita-icon-theme
     brightnessctl
     keyd
-    unstable.deskflow # same channel as the Hyprland portal
+    lan-mouse
 
     # --- Apps ---
     firefox
@@ -263,6 +288,13 @@ in
     pass
     age
     rclone
+  ];
+
+  fonts.packages = with pkgs; [
+   noto-fonts
+   liberation_ttf
+   vivaldi
+   nerd-fonts.fira-code
   ];
 
   # ===========================================================================
@@ -533,5 +565,4 @@ in
   #     };
   #   };
 }
-
 
